@@ -5,12 +5,12 @@ module ROmniture
     DEFAULT_REPORT_WAIT_TIME = 0.25
     
     ENVIRONMENTS = {
-      :san_jose       => "https://api.omniture.com/admin/1.3/rest/",
-      :dallas         => "https://api2.omniture.com/admin/1.3/rest/",
-      :london         => "https://api3.omniture.com/admin/1.3/rest/",
-      :san_jose_beta  => "https://beta-api.omniture.com/admin/1.3/rest/",
-      :dallas_beta    => "https://beta-api2.omniture.com/admin/1.3/rest/",
-      :sandbox        => "https://api-sbx1.omniture.com/admin/1.3/rest/"
+      :san_jose       => "https://api.omniture.com/admin/1.4/rest/",
+      :dallas         => "https://api2.omniture.com/admin/1.4/rest/",
+      :london         => "https://api3.omniture.com/admin/1.4/rest/",
+      :san_jose_beta  => "https://beta-api.omniture.com/admin/1.4/rest/",
+      :dallas_beta    => "https://beta-api2.omniture.com/admin/1.4/rest/",
+      :sandbox        => "https://api-sbx1.omniture.com/admin/1.4/rest/"
     }    
     
     def initialize(username, shared_secret, environment, options={})
@@ -37,11 +37,11 @@ module ROmniture
       end
     end
     
-    def get_report(method, report_description)      
+    def get_report(method, report_description)
       response = send_request(method, report_description)
       
       json = JSON.parse response.body
-      if json["status"] == "queued"
+      if json["reportID"]
         log(Logger::INFO, "Report with ID (" + json["reportID"].to_s + ") queued.  Now fetching report...")
         return get_queued_report json["reportID"]
       else
@@ -90,7 +90,7 @@ module ROmniture
       response = HTTPI.post(request)
       
       if response.code >= 400
-        log(:error, "Request failed and returned with response code: #{response.code}\n\n#{response.body}")
+        log(Logger::ERROR, "Request failed and returned with response code: #{response.code}\n\n#{response.body}")
         raise "Request failed and returned with response code: #{response.code}\n\n#{response.body}" 
       end
       
@@ -101,7 +101,7 @@ module ROmniture
     
     def generate_nonce
       @nonce          = Digest::MD5.new.hexdigest(rand().to_s)
-      @created        = Time.now.strftime("%Y-%m-%dT%H:%M:%SZ")
+      @created        = Time.now.utc.strftime("%Y-%m-%dT%H:%M:%SZ")
       combined_string = @nonce + @created + @shared_secret
       sha1_string     = Digest::SHA1.new.hexdigest(combined_string)
       @password       = Base64.encode64(sha1_string).to_s.chomp("\n")
@@ -114,35 +114,9 @@ module ROmniture
     end
     
     def get_queued_report(report_id)
-      done = false
-      error = false
-      status = nil
       start_time = Time.now
-      end_time = nil
-
-      begin
-        response = send_request("Report.GetStatus", {"reportID" => "#{report_id}"})
-        log(Logger::INFO, "Checking on status of report #{report_id}...")
-        
-        json = JSON.parse(response.body)
-        status = json["status"]
-        
-        if status == "done"
-          done = true
-        elsif status == "failed"
-          error = true
-        end
-        
-        sleep @wait_time if !done && !error
-      end while !done && !error
-      
-      if error
-        msg = "Unable to get data for report #{report_id}.  Status: #{status}.  Error Code: #{json["error_code"]}.  #{json["error_msg"]}."
-        log(:error, msg)
-        raise ROmniture::Exceptions::OmnitureReportException.new(json), msg
-      end
             
-      response = send_request("Report.GetReport", {"reportID" => "#{report_id}"})
+      response = send_request("Report.Get", {"reportID" => "#{report_id}"})
 
       end_time = Time.now
       log(Logger::INFO, "Report with ID #{report_id} has finished processing in #{((end_time - start_time)*1000).to_i} ms")
