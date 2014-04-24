@@ -50,6 +50,44 @@ module ROmniture
       end
     end
     
+    def get_queued_report(report_id)
+      try_again = false
+      error = false
+      done = false
+      end_time = nil
+      start_time = Time.now
+
+      begin
+        error = false
+        try_again = false
+
+        response = send_request("Report.Get", { "reportID" => "#{report_id}" })
+        
+        json = JSON.parse(response.body)
+
+        if response.code == 200
+          done = true
+        else
+          error = true
+          log(Logger::WARN, "#{json['error']}: #{json["error_description"]}")
+          try_again = response.code == 400 && json["error"] == "report_not_ready"
+        end
+        
+        sleep @wait_time if try_again && !done
+      end while try_again && !done
+      
+      if error
+        msg = "Unable to get data for report #{report_id}. Error Code: #{json["error"]}."
+        log(Logger::ERROR, msg)
+        raise ROmniture::Exceptions::OmnitureReportException.new(json), msg
+      end
+
+      end_time = Time.now
+      log(Logger::INFO, "Report with ID #{report_id} has finished processing in #{((end_time - start_time)*1000).to_i} ms")
+      
+      JSON.parse(response.body)
+    end
+
     attr_writer :log
     
     def log?
@@ -88,14 +126,9 @@ module ROmniture
       request.body = data.to_json
 
       response = HTTPI.post(request)
-      
-      if response.code >= 400
-        log(Logger::ERROR, "Request failed and returned with response code: #{response.code}\n\n#{response.body}")
-        raise "Request failed and returned with response code: #{response.code}\n\n#{response.body}" 
-      end
-      
+
       log(Logger::INFO, "Server responded with response code #{response.code}.")
-      
+
       response
     end
     
@@ -111,17 +144,6 @@ module ROmniture
       {
         "X-WSSE" => "UsernameToken Username=\"#{@username}\", PasswordDigest=\"#{@password}\", Nonce=\"#{@nonce}\", Created=\"#{@created}\""
       }
-    end
-    
-    def get_queued_report(report_id)
-      start_time = Time.now
-            
-      response = send_request("Report.Get", {"reportID" => "#{report_id}"})
-
-      end_time = Time.now
-      log(Logger::INFO, "Report with ID #{report_id} has finished processing in #{((end_time - start_time)*1000).to_i} ms")
-      
-      JSON.parse(response.body)
     end
   end
 end
